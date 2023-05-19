@@ -1,0 +1,23 @@
+[package]
+name = "ring-alloc"
+version = "0.0.0"
+edition = "2018"
+authors = ["Zakarum <zaq.dev@icloud.com>"]
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/ring-alloc"
+homepage = "https://github.com/zakarumych/ring-alloc"
+repository = "https://github.com/zakarumych/ring-alloc"
+readme = "README.md"
+
+[features]
+alloc = []
+std = ["alloc", "dep:parking_lot"]
+default = ["std"]
+nightly = ["allocator-api2/nightly"]
+
+[dependencies]
+allocator-api2 = { version = "0.2", path = "../allocator-api2" }
+parking_lot = { version = "0.12", optional = true }
+
+[dev-dependencies]
+allocator-api2-tests = { version = "0.1", path = "../allocator-api2/tests" }
