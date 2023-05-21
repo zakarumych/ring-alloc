@@ -13,7 +13,7 @@ readme = "README.md"
 alloc = []
 std = ["alloc", "dep:parking_lot"]
 default = ["std"]
-nightly = ["allocator-api2/nightly"]
+nightly = ["allocator-api2/nightly", "allocator-api2-tests/nightly"]
 
 [dependencies]
 allocator-api2 = { version = "0.2.9" }
