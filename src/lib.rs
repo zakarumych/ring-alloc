@@ -69,22 +69,22 @@ trait ImUsize {
 }
 
 impl ImUsize for Cell<usize> {
-    #[inline(always)]
+    #[inline(never)]
     fn new(value: usize) -> Self {
         Cell::new(value)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn load(&self, _ordering: Ordering) -> usize {
         self.get()
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn store(&self, value: usize, _ordering: Ordering) {
         self.set(value)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn fetch_add(&self, value: usize, _ordering: Ordering) -> usize {
         let old_value = self.get();
         self.set(old_value.wrapping_add(value));
@@ -94,36 +94,44 @@ impl ImUsize for Cell<usize> {
 
 #[cfg(feature = "std")]
 impl ImUsize for core::sync::atomic::AtomicUsize {
-    #[inline(always)]
+    #[inline(never)]
     fn new(value: usize) -> Self {
         Self::new(value)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn load(&self, ordering: Ordering) -> usize {
         self.load(ordering)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn store(&self, value: usize, ordering: Ordering) {
         self.store(value, ordering)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn fetch_add(&self, value: usize, ordering: Ordering) -> usize {
         self.fetch_add(value, ordering)
     }
 }
 
-#[inline(always)]
+#[inline(never)]
 fn layout_max(layout: Layout) -> usize {
     layout.align().max(layout.size())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use allocator_api2_tests::make_test;
 
-    make_test![test_sizes(RingAlloc::new())];
+    mod local {
+        use crate::RingAlloc;
+        use allocator_api2_tests::make_test;
+        make_test![test_sizes(RingAlloc::new()), test_vec(RingAlloc::new()),];
+    }
+
+    mod global {
+        use crate::OneRingAlloc;
+        use allocator_api2_tests::make_test;
+        make_test![test_sizes(OneRingAlloc), test_vec(OneRingAlloc),];
+    }
 }

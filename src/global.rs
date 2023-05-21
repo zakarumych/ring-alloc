@@ -93,14 +93,14 @@ impl Drop for LocalRings {
 }
 
 impl LocalRings {
-    #[inline(always)]
+    #[inline(never)]
     fn clean_all(&self) {
         Self::clean(&self.tiny_ring);
         Self::clean(&self.small_ring);
         Self::clean(&self.large_ring);
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn clean<const N: usize>(ring: &LocalRing<Chunk<N>>) {
         let mut chunk = &ring.head;
 
@@ -115,34 +115,36 @@ impl LocalRings {
                 }
             } else {
                 // Safety: chunks in the ring are always valid.
-                chunk = unsafe { &c.as_ref().header().next };
+                chunk = unsafe { &c.as_ref().next };
             }
         }
 
-        ring.tail.set(None);
+        if ring.head.get().is_none() {
+            ring.tail.set(None);
+        }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn flush_all(&mut self) {
         Self::flush(&mut self.tiny_ring, &GLOBAL_RINGS.tiny_ring);
         Self::flush(&mut self.small_ring, &GLOBAL_RINGS.small_ring);
         Self::flush(&mut self.large_ring, &GLOBAL_RINGS.large_ring);
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn flush<const N: usize>(ring: &mut LocalRing<Chunk<N>>, global: &Mutex<GlobalRing<Chunk<N>>>) {
-        match (ring.head.get(), ring.tail.get()) {
+        match (ring.head.take(), ring.tail.take()) {
             (None, None) => {}
             (Some(head), Some(tail)) => {
                 let mut global = global.lock();
 
                 match (global.head, global.tail) {
                     (None, None) => {
-                        global.tail = ring.tail.get();
-                        global.head = ring.head.get();
+                        global.head = Some(head);
+                        global.tail = Some(tail);
                     }
                     (Some(_g_head), Some(mut g_tail)) => unsafe {
-                        *g_tail.as_mut().header_mut().next.get_mut() = Some(head);
+                        *g_tail.as_mut().next.get_mut() = Some(head);
                         global.tail = Some(tail);
                     },
                     _ => unsafe { unreachable_unchecked() },
@@ -209,7 +211,7 @@ fn _allocate<const N: usize>(
                 });
             }
             // Chunk is full. Try next one.
-            None => match chunk.header().next.take() {
+            None => match chunk.next.take() {
                 None => {
                     debug_assert_eq!(ring.tail.get(), ring.head.get());
                 }
@@ -219,7 +221,7 @@ fn _allocate<const N: usize>(
                     // Safety: tail is valid pointer to `Chunk` allocated by `self.allocator`.
                     let tail_chunk = unsafe { ring.tail.get().unwrap().as_ref() };
                     debug_assert_eq!(tail_chunk.next(), None);
-                    tail_chunk.header().next.set(Some(chunk_ptr));
+                    tail_chunk.next.set(Some(chunk_ptr));
                     ring.tail.set(Some(chunk_ptr));
                     ring.head.set(Some(next_ptr));
 
@@ -244,6 +246,7 @@ fn _allocate<const N: usize>(
         debug_assert_eq!(ring.tail.get(), None);
     }
 
+    // First grab chunks from global ring.
     let (g_head, g_tail) = {
         let mut global = global.lock();
         // Take all chunks from global ring.
@@ -261,7 +264,7 @@ fn _allocate<const N: usize>(
                     ring.tail.set(Some(g_tail));
                 }
                 (Some(head), Some(_tail)) => unsafe {
-                    *g_tail.as_mut().header_mut().next.get_mut() = Some(head);
+                    *g_tail.as_mut().next.get_mut() = Some(head);
                     ring.head.set(Some(g_head));
                 },
                 _ => unsafe { unreachable_unchecked() },
@@ -274,14 +277,17 @@ fn _allocate<const N: usize>(
 
     let ptr = match ptr {
         None => {
-            let chunk = Chunk::<N>::new(Global)?;
+            let chunk_ptr = Chunk::<N>::new(Global)?;
+
+            // Safety: `chunk` is valid pointer to `Chunk` allocated by `self.allocator`.
+            let chunk = unsafe { chunk_ptr.as_ref() };
+
             let ptr = chunk
                 .allocate(layout)
                 .expect("Failed to allocate from fresh chunk");
 
             // Put to head.
-            chunk.header().next.set(ring.head.get());
-            let chunk_ptr = NonNull::from(chunk);
+            chunk.next.set(ring.head.get());
 
             // If first chunk, put to tail.
             if ring.tail.get().is_none() {
@@ -311,7 +317,7 @@ fn _allocate<const N: usize>(
     })
 }
 
-#[inline(always)]
+#[inline(never)]
 fn allocate(layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
     if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {
         LOCAL_RINGS.with(|rings| _allocate(&rings.tiny_ring, &GLOBAL_RINGS.tiny_ring, layout))
@@ -324,7 +330,7 @@ fn allocate(layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
     }
 }
 
-#[inline(always)]
+#[inline(never)]
 pub unsafe fn deallocate(ptr: NonNull<u8>, layout: Layout) {
     if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {
         unsafe {
@@ -343,7 +349,7 @@ pub unsafe fn deallocate(ptr: NonNull<u8>, layout: Layout) {
     }
 }
 
-#[inline(always)]
+#[inline(never)]
 unsafe fn _deallocate<const N: usize>(ptr: NonNull<u8>, layout: Layout) {
     // Safety: `ptr` is valid pointer allocated from alive `Chunk`.
     unsafe {
@@ -352,12 +358,12 @@ unsafe fn _deallocate<const N: usize>(ptr: NonNull<u8>, layout: Layout) {
 }
 
 unsafe impl Allocator for OneRingAlloc {
-    #[inline(always)]
+    #[inline(never)]
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         allocate(layout)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         unsafe {
             deallocate(ptr, layout);

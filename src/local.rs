@@ -62,13 +62,13 @@ impl<A> Clone for RingAlloc<A>
 where
     A: Allocator,
 {
-    #[inline(always)]
+    #[inline(never)]
     fn clone(&self) -> Self {
         Rings::inc_ref(self.inner);
         RingAlloc { inner: self.inner }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn clone_from(&mut self, source: &Self) {
         Rings::inc_ref(source.inner);
         self.inner = source.inner;
@@ -79,7 +79,7 @@ impl<A> Drop for RingAlloc<A>
 where
     A: Allocator,
 {
-    #[inline(always)]
+    #[inline(never)]
     fn drop(&mut self) {
         Rings::dec_ref(self.inner);
     }
@@ -120,7 +120,7 @@ impl<A> Rings<A>
 where
     A: Allocator,
 {
-    #[inline(always)]
+    #[inline(never)]
     fn try_new_in(allocator: A) -> Result<NonNull<Self>, AllocError> {
         let ptr = allocator.allocate(Layout::new::<Self>())?;
         let inner = Rings {
@@ -141,7 +141,7 @@ where
         Ok(ptr)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn new_in(allocator: A) -> NonNull<Self> {
         match Self::try_new_in(allocator) {
             Ok(ptr) => ptr,
@@ -192,14 +192,14 @@ where
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn clean_all(&self) {
         Self::clean(&self.tiny_ring, &self.allocator);
         Self::clean(&self.small_ring, &self.allocator);
         Self::clean(&self.large_ring, &self.allocator);
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn clean<const N: usize>(ring: &Ring<Chunk<N>>, allocator: &A) {
         let mut chunk = &ring.head;
 
@@ -214,11 +214,13 @@ where
                 }
             } else {
                 // Safety: chunks in the ring are always valid.
-                chunk = unsafe { &c.as_ref().header().next };
+                chunk = unsafe { &c.as_ref().next };
             }
         }
 
-        ring.tail.set(None);
+        if ring.head.get().is_none() {
+            ring.tail.set(None);
+        }
     }
 
     fn free_all(&self) {
@@ -227,13 +229,13 @@ where
         Self::free_chunks(&self.large_ring, &self.allocator);
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn free_chunks<const N: usize>(ring: &Ring<Chunk<N>>, allocator: &A) {
         let mut chunk = ring.head.take();
 
         while let Some(c) = chunk {
             // Safety: chunks in the ring are always valid.
-            chunk = unsafe { c.as_ref().next() };
+            chunk = dbg!(unsafe { c.as_ref().next() });
             // Safety: `c` is valid pointer to `Chunk` allocated by `allocator`.
             unsafe {
                 Chunk::free(c, allocator);
@@ -246,7 +248,7 @@ where
 
 #[cfg(feature = "alloc")]
 impl RingAlloc {
-    #[inline(always)]
+    #[inline(never)]
     pub fn new() -> Self {
         RingAlloc {
             inner: Rings::new_in(allocator_api2::alloc::Global),
@@ -258,21 +260,21 @@ impl<A> RingAlloc<A>
 where
     A: Allocator,
 {
-    #[inline(always)]
+    #[inline(never)]
     pub fn new_in(allocator: A) -> Self {
         RingAlloc {
             inner: Rings::new_in(allocator),
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn try_new_in(allocator: A) -> Result<Self, AllocError> {
         Ok(RingAlloc {
             inner: Rings::try_new_in(allocator)?,
         })
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         // Safety: `self.inner` is valid pointer to `Rings`
         let inner = unsafe { self.inner.as_ref() };
@@ -287,7 +289,7 @@ where
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {
             unsafe {
@@ -334,7 +336,7 @@ where
                     });
                 }
                 // Chunk is full. Try next one.
-                None => match chunk.header().next.take() {
+                None => match chunk.next.take() {
                     None => {
                         debug_assert_eq!(ring.tail.get(), ring.head.get());
                     }
@@ -344,7 +346,7 @@ where
                         // Safety: tail is valid pointer to `Chunk` allocated by `self.allocator`.
                         let tail_chunk = unsafe { ring.tail.get().unwrap().as_ref() };
                         debug_assert_eq!(tail_chunk.next(), None);
-                        tail_chunk.header().next.set(Some(chunk_ptr));
+                        tail_chunk.next.set(Some(chunk_ptr));
                         ring.tail.set(Some(chunk_ptr));
                         ring.head.set(Some(next_ptr));
 
@@ -369,14 +371,17 @@ where
             debug_assert_eq!(ring.tail.get(), None);
         }
 
-        let chunk = Chunk::<N>::new(allocator)?;
+        let chunk_ptr = Chunk::<N>::new(allocator)?;
+
+        // Safety: `chunk` is valid pointer to `Chunk` allocated by `self.allocator`.
+        let chunk = unsafe { chunk_ptr.as_ref() };
+
         let ptr = chunk
             .allocate(layout)
             .expect("Failed to allocate from fresh chunk");
 
         // Put to head.
-        chunk.header().next.set(ring.head.get());
-        let chunk_ptr = NonNull::from(chunk);
+        chunk.next.set(ring.head.get());
 
         // If first chunk, put to tail.
         if ring.tail.get().is_none() {
@@ -401,7 +406,7 @@ where
         })
     }
 
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn _deallocate<const N: usize>(ptr: NonNull<u8>, layout: Layout) {
         // Safety: `ptr` is valid pointer allocated from alive `Chunk`.
         unsafe {
@@ -421,12 +426,12 @@ unsafe impl<A> Allocator for RingAlloc<A>
 where
     A: Allocator,
 {
-    #[inline(always)]
+    #[inline(never)]
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         self.allocate(layout)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         // Safety: covered by `Allocator::deallocate` contract.
         unsafe { self.deallocate(ptr, layout) }
