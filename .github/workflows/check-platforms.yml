@@ -18,11 +18,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
-    - name: Install stable toolchain
+    - name: Install nightly toolchain
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: stable
+        toolchain: nightly
     - name: Run cargo check
       uses: actions-rs/cargo@v1
       with:

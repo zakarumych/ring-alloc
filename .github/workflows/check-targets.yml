@@ -26,11 +26,11 @@ jobs:
         - wasm32-unknown-unknown
     steps:
     - uses: actions/checkout@v2
-    - name: Install stable toolchain
+    - name: Install nightly toolchain
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: stable
+        toolchain: nightly
         target: ${{ matrix.target }}
     - name: Run cargo check
       uses: actions-rs/cargo@v1
