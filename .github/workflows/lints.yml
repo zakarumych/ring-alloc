@@ -39,5 +39,6 @@ jobs:
     - name: Run cargo clippy
       uses: actions-rs/clippy-check@v1
       with:
+        toolchain: nightly
         token: ${{ secrets.GITHUB_TOKEN }}
         args: --all --all-features -- -D warnings
