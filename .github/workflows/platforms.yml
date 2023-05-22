@@ -1,4 +1,4 @@
-name: Check multiple platforms
+name: Check on multiple platforms
 
 on:
   pull_request:
@@ -23,9 +23,9 @@ jobs:
       with:
         profile: minimal
         toolchain: nightly
-    - name: Run cargo test
+    - name: Run cargo check
       uses: actions-rs/cargo@v1
       with:
         toolchain: nightly
-        command: test
+        command: check
         args: --all --all-features

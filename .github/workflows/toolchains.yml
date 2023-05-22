@@ -1,4 +1,4 @@
-name: Check multiple toolchains
+name: Test on stable and nightly
 
 on:
   pull_request:

@@ -1,4 +1,4 @@
-name: Check multiple targets
+name: Check on multiple targets
 
 on:
   pull_request:
@@ -32,9 +32,9 @@ jobs:
         profile: minimal
         toolchain: nightly
         target: ${{ matrix.target }}
-    - name: Run cargo test
+    - name: Run cargo check
       uses: actions-rs/cargo@v1
       with:
         toolchain: nightly
-        command: test
+        command: check
         args: --all --all-features

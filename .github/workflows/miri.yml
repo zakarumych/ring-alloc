@@ -1,4 +1,4 @@
-name: Check multiple toolchains
+name: Tests under Miri
 
 on:
   pull_request:
