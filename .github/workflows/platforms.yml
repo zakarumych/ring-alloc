@@ -1,4 +1,4 @@
-name: Check multiple toolchains
+name: Check on multiple platforms
 
 on:
   pull_request:
@@ -11,21 +11,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-toolchains:
-    runs-on: ubuntu-latest
+  check-targets:
     strategy:
       matrix:
-        rust-toolchain: [stable, nightly]
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
-    - name: Install ${{ matrix.rust-toolchain }} toolchain
+    - name: Install nightly toolchain
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: ${{ matrix.rust-toolchain }}
+        toolchain: nightly
     - name: Run cargo check
       uses: actions-rs/cargo@v1
       with:
-        toolchain: ${{ matrix.rust-toolchain }}
+        toolchain: nightly
         command: check
-        args: --all
+        args: --all --all-features

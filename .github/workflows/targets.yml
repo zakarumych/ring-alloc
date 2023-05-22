@@ -1,4 +1,4 @@
-name: Check multiple targets
+name: Check on multiple targets
 
 on:
   pull_request:

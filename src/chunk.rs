@@ -1,16 +1,14 @@
 use core::{
     alloc::Layout,
     cell::Cell,
-    mem::{align_of, size_of, MaybeUninit},
+    mem::{align_of, size_of},
     ptr::NonNull,
     sync::atomic::Ordering,
 };
 
 use allocator_api2::alloc::{AllocError, Allocator};
 
-use crate::{addr, with_addr, with_addr_mut, ImUsize};
-
-pub(crate) const BARE_ALLOCATION_CHUNK_SIZE_THRESHOLD: usize = 16384;
+use crate::{addr, with_addr_mut, ImUsize};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -26,15 +24,7 @@ where
 {
     const SIZE: usize = N;
 
-    const BARE_ALLOCATION_CHUNK: bool = Self::SIZE <= BARE_ALLOCATION_CHUNK_SIZE_THRESHOLD;
-
-    const ALIGNMENT: usize = {
-        if Self::BARE_ALLOCATION_CHUNK {
-            BARE_ALLOCATION_CHUNK_SIZE_THRESHOLD
-        } else {
-            align_of::<Self>()
-        }
-    };
+    const ALIGNMENT: usize = align_of::<Self>();
 
     const LAYOUT: Layout = match Layout::from_size_align(Self::SIZE, Self::ALIGNMENT) {
         Ok(layout) => layout,
@@ -57,17 +47,17 @@ where
     {
         debug_assert!(Self::LAYOUT_IS_VALID);
 
-        let mut ptr = alloc.allocate(Self::LAYOUT)?.cast::<MaybeUninit<Self>>();
+        let ptr = alloc.allocate(Self::LAYOUT)?.cast::<Self>();
         let memory = unsafe { ptr.as_ptr().add(1).cast::<u8>() };
 
-        // Safety: MaybeUninit is always init.
-        let chunk = unsafe { ptr.as_mut() };
-
-        chunk.write(Chunk {
-            cursor: Cell::new(memory),
-            freed: T::new(addr(memory)),
-            next: Cell::new(None),
-        });
+        // Safety: Writing into memory allocated for `Chunk`.
+        unsafe {
+            ptr.as_ptr().write(Chunk {
+                cursor: Cell::new(memory),
+                freed: T::new(addr(memory)),
+                next: Cell::new(None),
+            });
+        }
 
         Ok(ptr.cast())
     }
@@ -169,18 +159,13 @@ where
     }
 
     #[inline(never)]
-    fn allocate_bare(&self, layout: Layout) -> Option<NonNull<u8>> {
-        self._allocate(layout)
-    }
-
-    #[inline(never)]
-    fn allocate_meta(&self, layout: Layout) -> Option<NonNull<u8>> {
-        let (meta_layout, offset) = Layout::new::<*const Self>().extend(layout).ok()?;
+    pub fn allocate(&self, chunk_ptr: NonNull<Self>, layout: Layout) -> Option<NonNull<u8>> {
+        let (meta_layout, offset) = Layout::new::<NonNull<Self>>().extend(layout).ok()?;
         let ptr = self._allocate(meta_layout)?;
 
         // Safety: `ptr` is allocated to contain `usize` followed with memory for `layout`.
         unsafe {
-            ptr.as_ptr().cast::<*const Self>().write(self);
+            ptr.as_ptr().cast::<NonNull<Self>>().write(chunk_ptr);
         }
 
         // Safety: offset for `layout` in `meta_layout` used to calculate `ptr`.
@@ -191,15 +176,6 @@ where
     }
 
     #[inline(never)]
-    pub fn allocate(&self, layout: Layout) -> Option<NonNull<u8>> {
-        if Self::BARE_ALLOCATION_CHUNK {
-            self.allocate_bare(layout)
-        } else {
-            self.allocate_meta(layout)
-        }
-    }
-
-    #[inline(never)]
     unsafe fn _deallocate(&self, size: usize) {
         // Safety: `freed` is always less than `cursor - size`.
         // Sync with `Acquire` in `allocate`.
@@ -207,46 +183,16 @@ where
     }
 
     #[inline(never)]
-    unsafe fn deallocate_bare(ptr: *const u8, size: usize) {
-        let addr = addr(ptr);
-        let chunk_addr = addr & !(Self::SIZE - 1);
+    pub unsafe fn deallocate(ptr: *mut u8, layout: Layout) {
+        let (meta_layout, offset) = Layout::new::<NonNull<Self>>().extend(layout).unwrap();
 
-        // Safety: `chunk_addr` is correct address for `Self`.
-        let chunk = unsafe { with_addr(ptr, chunk_addr) }.cast::<Self>();
-
-        // Safety: chunk is alive since `ptr` is alive.
-        let chunk = unsafe { &*chunk };
-
-        unsafe {
-            chunk._deallocate(size);
-        }
-    }
-
-    #[inline(never)]
-    unsafe fn deallocate_meta(ptr: *const u8, layout: Layout) {
-        let ptr_addr = addr(ptr);
-        let meta_addr = (ptr_addr - size_of::<usize>()) & !(layout.align() - 1);
-
-        let meta_ptr = unsafe { with_addr(ptr, meta_addr) }.cast::<*const Self>();
+        let meta_ptr = unsafe { ptr.sub(offset) }.cast::<NonNull<Self>>();
         let chunk_ptr = unsafe { *meta_ptr };
 
         // Safety: chunk is alive since `ptr` is alive.
-        let chunk = unsafe { &*chunk_ptr };
+        let chunk = unsafe { chunk_ptr.as_ref() };
         unsafe {
-            chunk._deallocate(layout.size());
-        }
-    }
-
-    #[inline(never)]
-    pub unsafe fn deallocate(ptr: *const u8, layout: Layout) {
-        if Self::BARE_ALLOCATION_CHUNK {
-            unsafe {
-                Self::deallocate_bare(ptr, layout.size());
-            }
-        } else {
-            unsafe {
-                Self::deallocate_meta(ptr, layout);
-            }
+            chunk._deallocate(meta_layout.size());
         }
     }
 }

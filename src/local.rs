@@ -1,8 +1,13 @@
-use core::{cell::Cell, mem::ManuallyDrop, ptr::NonNull};
+use core::{
+    cell::Cell,
+    hash::{Hash, Hasher},
+    mem::ManuallyDrop,
+    ptr::NonNull,
+};
 
 use allocator_api2::alloc::{AllocError, Allocator, Layout};
 
-use crate::{chunk::BARE_ALLOCATION_CHUNK_SIZE_THRESHOLD, layout_max};
+use crate::layout_max;
 
 type Chunk<const N: usize> = crate::chunk::Chunk<Cell<usize>, { N }>;
 
@@ -10,10 +15,10 @@ type Chunk<const N: usize> = crate::chunk::Chunk<Cell<usize>, { N }>;
 const TINY_ALLOCATION_MAX_SIZE: usize = 16;
 
 /// Size of the chunk for allocations not larger than `TINY_ALLOCATION_CHUNK_SIZE`.
-const TINY_ALLOCATION_CHUNK_SIZE: usize = BARE_ALLOCATION_CHUNK_SIZE_THRESHOLD;
+const TINY_ALLOCATION_CHUNK_SIZE: usize = 16384;
 
 /// Allocations up to this number of bytes are allocated in the small chunk.
-const SMALL_ALLOCATION_MAX_SIZE: usize = 32;
+const SMALL_ALLOCATION_MAX_SIZE: usize = 256;
 
 /// Size of the chunk for allocations not larger than `SMALL_ALLOCATION_MAX_SIZE`.
 const SMALL_ALLOCATION_CHUNK_SIZE: usize = 65536;
@@ -28,7 +33,7 @@ const LARGE_ALLOCATION_CHUNK_SIZE: usize = 2097152;
 macro_rules! ring_alloc {
     ($(#[$meta:meta])* pub struct $ring_alloc:ident;) => {
         $(#[$meta])*
-        #[derive(PartialEq, Eq)]
+        #[repr(transparent)]
         pub struct $ring_alloc<A: Allocator> {
             inner: NonNull<Rings<A>>,
         }
@@ -39,7 +44,8 @@ macro_rules! ring_alloc {
 macro_rules! ring_alloc {
     ($(#[$meta:meta])* pub struct $ring_alloc:ident;) => {
         $(#[$meta])*
-        #[derive(PartialEq, Eq)]
+        #[repr(transparent)]
+        #[must_use]
         pub struct $ring_alloc<A: Allocator = allocator_api2::alloc::Global> {
             inner: NonNull<Rings<A>>,
         }
@@ -72,6 +78,26 @@ where
     fn clone_from(&mut self, source: &Self) {
         Rings::inc_ref(source.inner);
         self.inner = source.inner;
+    }
+}
+
+impl<A> PartialEq for RingAlloc<A>
+where
+    A: Allocator,
+{
+    #[inline(never)]
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl<A> Hash for RingAlloc<A>
+where
+    A: Allocator,
+{
+    #[inline(never)]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
     }
 }
 
@@ -142,6 +168,7 @@ where
     }
 
     #[inline(never)]
+    #[cfg(not(no_global_oom_handling))]
     fn new_in(allocator: A) -> NonNull<Self> {
         match Self::try_new_in(allocator) {
             Ok(ptr) => ptr,
@@ -235,7 +262,7 @@ where
 
         while let Some(c) = chunk {
             // Safety: chunks in the ring are always valid.
-            chunk = dbg!(unsafe { c.as_ref().next() });
+            chunk = unsafe { c.as_ref().next() };
             // Safety: `c` is valid pointer to `Chunk` allocated by `allocator`.
             unsafe {
                 Chunk::free(c, allocator);
@@ -246,8 +273,10 @@ where
     }
 }
 
+#[cfg(not(no_global_oom_handling))]
 #[cfg(feature = "alloc")]
 impl RingAlloc {
+    /// Returns new [`RingAlloc`] that uses [`Global`] allocator.
     #[inline(never)]
     pub fn new() -> Self {
         RingAlloc {
@@ -256,10 +285,23 @@ impl RingAlloc {
     }
 }
 
+#[cfg(not(no_global_oom_handling))]
+impl<A> Default for RingAlloc<A>
+where
+    A: Allocator + Default,
+{
+    #[inline(never)]
+    fn default() -> Self {
+        RingAlloc::new_in(A::default())
+    }
+}
+
 impl<A> RingAlloc<A>
 where
     A: Allocator,
 {
+    /// Returns new [`RingAlloc`] that uses given allocator.
+    #[cfg(not(no_global_oom_handling))]
     #[inline(never)]
     pub fn new_in(allocator: A) -> Self {
         RingAlloc {
@@ -267,6 +309,7 @@ where
         }
     }
 
+    /// Attempts to create new [`RingAlloc`] that uses given allocator.
     #[inline(never)]
     pub fn try_new_in(allocator: A) -> Result<Self, AllocError> {
         Ok(RingAlloc {
@@ -274,6 +317,8 @@ where
         })
     }
 
+    /// Attempts to allocate a block of memory with this ring-allocator.
+    /// Returns a pointer to the beginning of the block if successful.
     #[inline(never)]
     pub fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         // Safety: `self.inner` is valid pointer to `Rings`
@@ -289,6 +334,15 @@ where
         }
     }
 
+    /// Deallocates the memory referenced by `ptr`.
+    ///
+    /// # Safety
+    ///
+    /// * `ptr` must denote a block of memory [*currently allocated*] via [`RingAlloc::allocate`], and
+    /// * `layout` must [*fit*] that block of memory.
+    ///
+    /// [*currently allocated*]: https://doc.rust-lang.org/std/alloc/trait.Allocator.html#currently-allocated-memory
+    /// [*fit*]: https://doc.rust-lang.org/std/alloc/trait.Allocator.html#memory-fitting
     #[inline(never)]
     pub unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {
@@ -324,7 +378,7 @@ where
             // Safety: `chunk` is valid pointer to `Chunk` allocated by `self.allocator`.
             let chunk = unsafe { chunk_ptr.as_ref() };
 
-            match chunk.allocate(layout) {
+            match chunk.allocate(chunk_ptr, layout) {
                 Some(ptr) => {
                     // Safety: `ptr` is valid pointer to `Chunk` allocated by `self.allocator`.
                     // ptr is allocated to fit `layout.size()` bytes.
@@ -352,7 +406,7 @@ where
 
                         let next = unsafe { next_ptr.as_ref() };
 
-                        if let Some(ptr) = next.allocate(layout) {
+                        if let Some(ptr) = next.allocate(next_ptr, layout) {
                             // Safety: `ptr` is valid pointer to `Chunk` allocated by `self.allocator`.
                             // ptr is allocated to fit `layout.size()` bytes.
                             return Ok(unsafe {
@@ -377,7 +431,7 @@ where
         let chunk = unsafe { chunk_ptr.as_ref() };
 
         let ptr = chunk
-            .allocate(layout)
+            .allocate(chunk_ptr, layout)
             .expect("Failed to allocate from fresh chunk");
 
         // Put to head.
