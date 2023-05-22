@@ -1,4 +1,4 @@
-name: Check multiple platforms
+name: Check multiple toolchains
 
 on:
   pull_request:
@@ -11,11 +11,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-targets:
+  check-toolchains:
+    runs-on: ubuntu-latest
     strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
     - name: Install nightly toolchain
@@ -23,9 +21,10 @@ jobs:
       with:
         profile: minimal
         toolchain: nightly
-    - name: Run cargo test
+        components: miri
+    - name: Run cargo miri test
       uses: actions-rs/cargo@v1
       with:
         toolchain: nightly
-        command: test
-        args: --all --all-features
+        command: miri
+        args: test --all --all-features

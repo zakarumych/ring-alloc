@@ -32,9 +32,9 @@ jobs:
         profile: minimal
         toolchain: nightly
         target: ${{ matrix.target }}
-    - name: Run cargo check
+    - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
         toolchain: nightly
-        command: check
+        command: test
         args: --all --all-features

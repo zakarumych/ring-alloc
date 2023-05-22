@@ -23,9 +23,9 @@ jobs:
       with:
         profile: minimal
         toolchain: ${{ matrix.rust-toolchain }}
-    - name: Run cargo check
+    - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
         toolchain: ${{ matrix.rust-toolchain }}
-        command: check
+        command: test
         args: --all
