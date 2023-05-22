@@ -24,16 +24,17 @@ extern crate alloc;
 mod chunk;
 mod local;
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 mod global;
 
 use core::{alloc::Layout, cell::Cell, sync::atomic::Ordering};
 
 pub use self::local::RingAlloc;
 
-#[cfg(feature = "alloc")]
-pub use self::global::OneRingAlloc;
+#[cfg(feature = "std")]
+pub use self::global::{allocate, clean_global, clean_local, deallocate, OneRingAlloc};
 
+#[allow(clippy::transmutes_expressible_as_ptr_casts)]
 fn addr<T: ?Sized>(ptr: *const T) -> usize {
     // Safety: pointer to address conversion is always valid.
     unsafe { core::mem::transmute(ptr.cast::<()>()) }

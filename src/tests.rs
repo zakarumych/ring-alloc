@@ -1,3 +1,6 @@
+#![cfg(not(no_global_oom_handling))]
+
+#[cfg(feature = "alloc")]
 mod local {
     use crate::RingAlloc;
     use allocator_api2_tests::make_test;
@@ -8,6 +11,7 @@ mod local {
     ];
 }
 
+#[cfg(feature = "std")]
 mod global {
     use crate::OneRingAlloc;
 

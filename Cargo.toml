@@ -16,8 +16,8 @@ default = ["std"]
 nightly = ["allocator-api2/nightly", "allocator-api2-tests/nightly"]
 
 [dependencies]
-allocator-api2 = { version = "0.2.11" }
+allocator-api2 = { version = "0.2.12" }
 parking_lot = { version = "0.12", optional = true }
 
 [dev-dependencies]
-allocator-api2-tests = { version = "0.2.11" }
+allocator-api2-tests = { version = "0.2.12" }

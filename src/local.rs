@@ -45,6 +45,7 @@ macro_rules! ring_alloc {
     ($(#[$meta:meta])* pub struct $ring_alloc:ident;) => {
         $(#[$meta])*
         #[repr(transparent)]
+        #[must_use]
         pub struct $ring_alloc<A: Allocator = allocator_api2::alloc::Global> {
             inner: NonNull<Rings<A>>,
         }
@@ -87,11 +88,6 @@ where
     #[inline(never)]
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
-    }
-
-    #[inline(never)]
-    fn ne(&self, other: &Self) -> bool {
-        self.inner != other.inner
     }
 }
 
@@ -172,6 +168,7 @@ where
     }
 
     #[inline(never)]
+    #[cfg(not(no_global_oom_handling))]
     fn new_in(allocator: A) -> NonNull<Self> {
         match Self::try_new_in(allocator) {
             Ok(ptr) => ptr,
@@ -265,7 +262,7 @@ where
 
         while let Some(c) = chunk {
             // Safety: chunks in the ring are always valid.
-            chunk = dbg!(unsafe { c.as_ref().next() });
+            chunk = unsafe { c.as_ref().next() };
             // Safety: `c` is valid pointer to `Chunk` allocated by `allocator`.
             unsafe {
                 Chunk::free(c, allocator);
@@ -276,8 +273,10 @@ where
     }
 }
 
+#[cfg(not(no_global_oom_handling))]
 #[cfg(feature = "alloc")]
 impl RingAlloc {
+    /// Returns new [`RingAlloc`] that uses [`Global`] allocator.
     #[inline(never)]
     pub fn new() -> Self {
         RingAlloc {
@@ -286,10 +285,23 @@ impl RingAlloc {
     }
 }
 
+#[cfg(not(no_global_oom_handling))]
+impl<A> Default for RingAlloc<A>
+where
+    A: Allocator + Default,
+{
+    #[inline(never)]
+    fn default() -> Self {
+        RingAlloc::new_in(A::default())
+    }
+}
+
 impl<A> RingAlloc<A>
 where
     A: Allocator,
 {
+    /// Returns new [`RingAlloc`] that uses given allocator.
+    #[cfg(not(no_global_oom_handling))]
     #[inline(never)]
     pub fn new_in(allocator: A) -> Self {
         RingAlloc {
@@ -297,6 +309,7 @@ where
         }
     }
 
+    /// Attempts to create new [`RingAlloc`] that uses given allocator.
     #[inline(never)]
     pub fn try_new_in(allocator: A) -> Result<Self, AllocError> {
         Ok(RingAlloc {
@@ -304,6 +317,8 @@ where
         })
     }
 
+    /// Attempts to allocate a block of memory with this ring-allocator.
+    /// Returns a pointer to the beginning of the block if successful.
     #[inline(never)]
     pub fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         // Safety: `self.inner` is valid pointer to `Rings`
@@ -319,6 +334,15 @@ where
         }
     }
 
+    /// Deallocates the memory referenced by `ptr`.
+    ///
+    /// # Safety
+    ///
+    /// * `ptr` must denote a block of memory [*currently allocated*] via [`RingAlloc::allocate`], and
+    /// * `layout` must [*fit*] that block of memory.
+    ///
+    /// [*currently allocated*]: https://doc.rust-lang.org/std/alloc/trait.Allocator.html#currently-allocated-memory
+    /// [*fit*]: https://doc.rust-lang.org/std/alloc/trait.Allocator.html#memory-fitting
     #[inline(never)]
     pub unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {

@@ -76,6 +76,47 @@ struct GlobalRings {
     large_ring: Mutex<GlobalRing<LargeChunk>>,
 }
 
+impl Drop for GlobalRings {
+    fn drop(&mut self) {
+        Self::clean(self.tiny_ring.get_mut());
+        Self::clean(self.small_ring.get_mut());
+        Self::clean(self.large_ring.get_mut());
+    }
+}
+
+impl GlobalRings {
+    #[inline(never)]
+    fn clean_all(&self) {
+        Self::clean(&mut self.tiny_ring.lock());
+        Self::clean(&mut self.small_ring.lock());
+        Self::clean(&mut self.large_ring.lock());
+    }
+
+    #[inline(never)]
+    fn clean<const N: usize>(ring: &mut GlobalRing<Chunk<N>>) {
+        let mut chunk = &mut ring.head;
+
+        while let Some(mut c) = *chunk {
+            if unsafe { c.as_ref().unused() } {
+                // Safety: chunks in the ring are always valid.
+                *chunk = unsafe { c.as_mut().next() };
+
+                // Safety: `c` is valid pointer to `Chunk` allocated by `allocator`.
+                unsafe {
+                    Chunk::free(c, Global);
+                }
+            } else {
+                // Safety: chunks in the ring are always valid.
+                chunk = unsafe { c.as_mut().next.get_mut() };
+            }
+        }
+
+        if ring.head.is_none() {
+            ring.tail = None;
+        }
+    }
+}
+
 unsafe impl Send for GlobalRings {}
 unsafe impl Sync for GlobalRings {}
 
@@ -318,8 +359,10 @@ fn _allocate<const N: usize>(
     })
 }
 
+/// Attempts to allocate a block of memory with global ring-allocator.
+/// Returns a pointer to the beginning of the block if successful.
 #[inline(never)]
-fn allocate(layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+pub fn allocate(layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
     if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {
         LOCAL_RINGS.with(|rings| _allocate(&rings.tiny_ring, &GLOBAL_RINGS.tiny_ring, layout))
     } else if layout_max(layout) <= SMALL_ALLOCATION_MAX_SIZE {
@@ -331,6 +374,16 @@ fn allocate(layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
     }
 }
 
+/// Deallocates the memory referenced by `ptr`.
+///
+/// # Safety
+///
+/// * `ptr` must denote a block of memory [*currently allocated*]
+///   via [`allocate`] or [`OneRingAlloc::allocate`], and
+/// * `layout` must [*fit*] that block of memory.
+///
+/// [*currently allocated*]: https://doc.rust-lang.org/std/alloc/trait.Allocator.html#currently-allocated-memory
+/// [*fit*]: https://doc.rust-lang.org/std/alloc/trait.Allocator.html#memory-fitting
 #[inline(never)]
 pub unsafe fn deallocate(ptr: NonNull<u8>, layout: Layout) {
     if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {
@@ -348,6 +401,37 @@ pub unsafe fn deallocate(ptr: NonNull<u8>, layout: Layout) {
     } else {
         unsafe { Global.deallocate(ptr, layout) }
     }
+}
+
+/// Cleans global shared rings.
+///
+/// When thread exists it frees all chunks that it allocated,
+/// except those that are still in use by currently allocated blocks.
+/// Chunks that are still in use are put to global shared rings.
+///
+/// Those get stolen by thread if thread needs new chunk.
+///
+/// This function frees all chunks that are in global shared rings
+/// if they are not in use by currently allocated blocks.
+///
+/// This function may reduce memory overhead if threads exist and blocks
+/// allocated by them is freed later, while all other threads are warm.
+pub fn clean_global() {
+    GLOBAL_RINGS.clean_all();
+}
+
+/// Cleans local rings.
+///
+/// Thread frees chunks that it allocated when it exists.
+/// While thread is running chunks are stored in thread-local rings
+/// and reused in circular manner without deallocation.
+///
+/// This method frees all chunks that are not in use by currently allocated blocks
+/// in the local rings.
+/// Call this when thread's memory usage drops significantly
+/// and you want to reduce memory overhead.
+pub fn clean_local() {
+    LOCAL_RINGS.with(|rings| rings.clean_all());
 }
 
 #[inline(never)]
