@@ -9,6 +9,8 @@ homepage = "https://github.com/zakarumych/ring-alloc"
 repository = "https://github.com/zakarumych/ring-alloc"
 readme = "README.md"
 description = "Specialized allocator for short-living objects"
+keywords = ["allocator", "alloc", "concurrent", "no-std"]
+categories = ["memory-management", "no-std"]
 
 [features]
 alloc = []
