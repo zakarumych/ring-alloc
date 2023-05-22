@@ -1,6 +1,6 @@
 [package]
 name = "ring-alloc"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2018"
 authors = ["Zakarum <zaq.dev@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -16,8 +16,8 @@ default = ["std"]
 nightly = ["allocator-api2/nightly", "allocator-api2-tests/nightly"]
 
 [dependencies]
-allocator-api2 = { version = "0.2.9" }
+allocator-api2 = { version = "0.2.11" }
 parking_lot = { version = "0.12", optional = true }
 
 [dev-dependencies]
-allocator-api2-tests = { version = "0.2.9" }
+allocator-api2-tests = { version = "0.2.11" }

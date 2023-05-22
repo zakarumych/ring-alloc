@@ -44,17 +44,6 @@ fn addr<T: ?Sized>(ptr: *const T) -> usize {
 /// New address must be withing same allocation as `ptr`.
 /// Address must be aligned for `T`.
 /// `addr` must be non-zero.
-unsafe fn with_addr<T>(ptr: *const T, dest_addr: usize) -> *const T {
-    let ptr_addr = addr(ptr) as isize;
-    let offset = (dest_addr as isize).wrapping_sub(ptr_addr);
-    ptr.cast::<u8>().wrapping_offset(offset).cast()
-}
-
-/// # Safety
-///
-/// New address must be withing same allocation as `ptr`.
-/// Address must be aligned for `T`.
-/// `addr` must be non-zero.
 unsafe fn with_addr_mut<T>(ptr: *mut T, dest_addr: usize) -> *mut T {
     let ptr_addr = addr(ptr) as isize;
     let offset = (dest_addr as isize).wrapping_sub(ptr_addr);
@@ -121,17 +110,4 @@ fn layout_max(layout: Layout) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-
-    mod local {
-        use crate::RingAlloc;
-        use allocator_api2_tests::make_test;
-        make_test![test_sizes(RingAlloc::new()), test_vec(RingAlloc::new()),];
-    }
-
-    mod global {
-        use crate::OneRingAlloc;
-        use allocator_api2_tests::make_test;
-        make_test![test_sizes(OneRingAlloc), test_vec(OneRingAlloc),];
-    }
-}
+mod tests;

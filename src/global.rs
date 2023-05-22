@@ -6,7 +6,7 @@ use std::thread_local;
 use allocator_api2::alloc::{AllocError, Allocator, Global};
 use parking_lot::Mutex;
 
-use crate::{chunk::BARE_ALLOCATION_CHUNK_SIZE_THRESHOLD, layout_max};
+use crate::layout_max;
 
 type Chunk<const N: usize> = crate::chunk::Chunk<AtomicUsize, N>;
 
@@ -14,10 +14,10 @@ type Chunk<const N: usize> = crate::chunk::Chunk<AtomicUsize, N>;
 const TINY_ALLOCATION_MAX_SIZE: usize = 16;
 
 /// Size of the chunk for allocations not larger than `TINY_ALLOCATION_CHUNK_SIZE`.
-const TINY_ALLOCATION_CHUNK_SIZE: usize = BARE_ALLOCATION_CHUNK_SIZE_THRESHOLD;
+const TINY_ALLOCATION_CHUNK_SIZE: usize = 16384;
 
 /// Allocations up to this number of bytes are allocated in the small chunk.
-const SMALL_ALLOCATION_MAX_SIZE: usize = 32;
+const SMALL_ALLOCATION_MAX_SIZE: usize = 256;
 
 /// Size of the chunk for allocations not larger than `SMALL_ALLOCATION_MAX_SIZE`.
 const SMALL_ALLOCATION_CHUNK_SIZE: usize = 65536;
@@ -186,6 +186,7 @@ static GLOBAL_RINGS: GlobalRings = GlobalRings {
 ///
 /// When thread-local ring cannot allocate memory it will steal global ring
 /// or allocate new chunk from global allocator if global ring is empty.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OneRingAlloc;
 
 #[inline]
@@ -199,7 +200,7 @@ fn _allocate<const N: usize>(
         // Safety: `chunk` is valid pointer to `Chunk` allocated by `self.allocator`.
         let chunk = unsafe { chunk_ptr.as_ref() };
 
-        match chunk.allocate(layout) {
+        match chunk.allocate(chunk_ptr, layout) {
             Some(ptr) => {
                 // Safety: `ptr` is valid pointer to `Chunk` allocated by `self.allocator`.
                 // ptr is allocated to fit `layout.size()` bytes.
@@ -227,7 +228,7 @@ fn _allocate<const N: usize>(
 
                     let next = unsafe { next_ptr.as_ref() };
 
-                    if let Some(ptr) = next.allocate(layout) {
+                    if let Some(ptr) = next.allocate(next_ptr, layout) {
                         // Safety: `ptr` is valid pointer to `Chunk` allocated by `self.allocator`.
                         // ptr is allocated to fit `layout.size()` bytes.
                         return Ok(unsafe {
@@ -255,8 +256,8 @@ fn _allocate<const N: usize>(
 
     let ptr = match (g_head, g_tail) {
         (None, None) => None,
-        (Some(mut g_head), Some(mut g_tail)) => {
-            let ptr = unsafe { g_head.as_mut().allocate(layout) };
+        (Some(g_head), Some(mut g_tail)) => {
+            let ptr = unsafe { g_head.as_ref().allocate(g_head, layout) };
 
             match (ring.head.get(), ring.tail.get()) {
                 (None, None) => {
@@ -283,7 +284,7 @@ fn _allocate<const N: usize>(
             let chunk = unsafe { chunk_ptr.as_ref() };
 
             let ptr = chunk
-                .allocate(layout)
+                .allocate(chunk_ptr, layout)
                 .expect("Failed to allocate from fresh chunk");
 
             // Put to head.
