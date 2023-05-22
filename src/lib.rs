@@ -1,19 +1,4 @@
-//!
-//!
-//! Ring-based allocator for Rust.
-//! This allocator is more flexible compared to arena-based allocators since there's no
-//! lifetime bounds.
-//! However user should still deallocate memory in short time to avoid
-//! wasting memory.
-//!
-//! Allocator uses ring buffer of chunks to allocate memory in front chunk,
-//! moving it to back if chunk is full.
-//! If next chunk is still occupied by previous allocation, allocator will
-//! allocate new chunk.
-//!
-//! If all allocations are deallocated while ring makes one full turn,
-//! no new chunks will be allocated.
-//!
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
 #![warn(unsafe_op_in_unsafe_fn)]
@@ -32,7 +17,7 @@ use core::{alloc::Layout, cell::Cell, sync::atomic::Ordering};
 pub use self::local::RingAlloc;
 
 #[cfg(feature = "std")]
-pub use self::global::{allocate, clean_global, clean_local, deallocate, OneRingAlloc};
+pub use self::global::OneRingAlloc;
 
 #[allow(clippy::transmutes_expressible_as_ptr_casts)]
 fn addr<T: ?Sized>(ptr: *const T) -> usize {
