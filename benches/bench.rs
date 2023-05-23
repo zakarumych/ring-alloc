@@ -1,10 +1,9 @@
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
 
-#[cfg(feature = "nightly")]
-use core::{alloc::AllocError, ptr::NonNull};
+use core::ptr::NonNull;
 
 use allocator_api2::{
-    alloc::{Allocator, Global, Layout},
+    alloc::{AllocError, Allocator, Global, Layout},
     boxed::Box,
     vec::Vec,
 };
@@ -12,13 +11,11 @@ use allocator_api2::{
 use criterion::*;
 use ring_alloc::*;
 
-#[cfg(feature = "nightly")]
 #[repr(transparent)]
 struct Bump<'a> {
     bump: &'a mut bumpalo::Bump,
 }
 
-#[cfg(feature = "nightly")]
 impl Bump<'_> {
     #[inline(always)]
     fn reset(&mut self) {
@@ -26,7 +23,6 @@ impl Bump<'_> {
     }
 }
 
-#[cfg(feature = "nightly")]
 unsafe impl<'a> Allocator for Bump<'a> {
     #[inline(always)]
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
@@ -36,6 +32,30 @@ unsafe impl<'a> Allocator for Bump<'a> {
     #[inline(always)]
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         Allocator::deallocate(&&*self.bump, ptr, layout)
+    }
+}
+
+#[repr(transparent)]
+struct BlinkAlloc<'a> {
+    blink: &'a mut blink_alloc::BlinkAlloc,
+}
+
+impl BlinkAlloc<'_> {
+    #[inline(always)]
+    fn reset(&mut self) {
+        self.blink.reset();
+    }
+}
+
+unsafe impl<'a> Allocator for BlinkAlloc<'a> {
+    #[inline(always)]
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        Allocator::allocate(&&*self.blink, layout)
+    }
+
+    #[inline(always)]
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        Allocator::deallocate(&&*self.blink, ptr, layout)
     }
 }
 
@@ -313,10 +333,9 @@ where
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    #[cfg(feature = "nightly")]
-    let mut bump = bumpalo::Bump::new();
-
     let mut ring_alloc = RingAlloc::new();
+    let mut bump = bumpalo::Bump::new();
+    let mut blink = blink_alloc::BlinkAlloc::new();
 
     bench_warm_up("Global", c, Global, |_| {});
 
@@ -328,10 +347,16 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     #[cfg(feature = "std")]
     bench_warm_up("ring_alloc::OneRingAlloc", c, OneRingAlloc, |_| {});
 
-    #[cfg(feature = "nightly")]
     bench_warm_up("bumpalo::Bump", c, Bump { bump: &mut bump }, |bump| {
         *bump.bump = bumpalo::Bump::new()
     });
+
+    bench_warm_up(
+        "blink_alloc::BlinkAlloc",
+        c,
+        BlinkAlloc { blink: &mut blink },
+        |blink| *blink.blink = blink_alloc::BlinkAlloc::new(),
+    );
 
     bench_alloc("Global", c, Global, |_| {}, true);
 
@@ -340,11 +365,18 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     #[cfg(feature = "std")]
     bench_alloc("ring_alloc::OneRingAlloc", c, OneRingAlloc, |_| {}, true);
 
-    #[cfg(feature = "nightly")]
     bench_alloc(
         "bumpalo::Bump",
         c,
         Bump { bump: &mut bump },
+        |b| b.reset(),
+        false,
+    );
+
+    bench_alloc(
+        "blink_alloc::BlinkAlloc",
+        c,
+        BlinkAlloc { blink: &mut blink },
         |b| b.reset(),
         false,
     );
@@ -355,8 +387,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     #[cfg(feature = "std")]
     bench_vec("ring_alloc::OneRingAlloc", c, OneRingAlloc, |_| {});
 
-    #[cfg(feature = "nightly")]
     bench_vec("bumpalo::Bump", c, Bump { bump: &mut bump }, |b| b.reset());
+    bench_vec(
+        "blink_alloc::BlinkAlloc",
+        c,
+        BlinkAlloc { blink: &mut blink },
+        |b| b.reset(),
+    );
 }
 
 criterion_group!(benches, criterion_benchmark);

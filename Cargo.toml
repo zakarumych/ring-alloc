@@ -16,7 +16,7 @@ categories = ["memory-management", "no-std"]
 alloc = []
 std = ["alloc", "dep:parking_lot"]
 default = ["std"]
-nightly = ["allocator-api2/nightly", "allocator-api2-tests/nightly", "bumpalo/allocator_api"]
+nightly = ["allocator-api2/nightly", "allocator-api2-tests/nightly", "bumpalo/allocator_api", "blink-alloc/nightly"]
 
 [dependencies]
 allocator-api2 = { version = "0.2.13" }
@@ -25,7 +25,8 @@ parking_lot = { version = "0.12", optional = true }
 [dev-dependencies]
 allocator-api2-tests = { version = "0.2.13" }
 criterion = "0.4"
-bumpalo = "3.7"
+bumpalo = { version = "3.13", features = ["allocator-api2"] }
+blink-alloc = { version = "0.3", features = ["sync"] }
 
 [[bench]]
 name = "bench"
