@@ -8,7 +8,7 @@ use core::{
 
 use allocator_api2::alloc::{AllocError, Allocator};
 
-use crate::{addr, with_addr_mut, ImUsize};
+use crate::{addr, cold, with_addr_mut, ImUsize};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -117,28 +117,40 @@ where
     ///
     /// If chunk is potentially shared, this method may return `true`
     /// while another thread is allocating from this chunk.
-    #[inline(never)]
+    #[inline(always)]
     pub fn unused(&self) -> bool {
         self.freed().load(Ordering::Acquire) == addr(self.cursor().get())
     }
 
-    #[inline(never)]
-    fn _allocate(&self, layout: Layout) -> Option<NonNull<u8>> {
+    /// Resets chunk to unused state.
+    /// If there are currently allocated blocks from this chunk,
+    /// returns `false`.
+    /// Otherwise resets chunk's cursor to the beginning of the chunk
+    /// and returns `true`.
+    #[inline(always)]
+    pub fn reset(&self) -> bool {
         let mut cursor = self.cursor().get();
-
-        // Reuse chunk if it is freed.
-        // Sync with `Release` in `deallocate`.
         if self.freed().load(Ordering::Acquire) == addr(cursor) {
             // Safety: base_addr is beginning of the chunk memory
             // and cursor is within the chunk memory.
             cursor = unsafe { with_addr_mut(cursor, self.base_addr()) };
             self.freed().store(addr(cursor), Ordering::Relaxed);
             self.cursor().set(cursor);
+            true
+        } else {
+            cold();
+            false
         }
+    }
+
+    #[inline(always)]
+    fn _allocate(&self, layout: Layout) -> Option<NonNull<u8>> {
+        let cursor = self.cursor().get();
 
         let aligned = addr(cursor).checked_add(layout.align() - 1)? & !(layout.align() - 1);
         let new_cursor = aligned.checked_add(layout.size())?;
         if new_cursor > self.end_addr() {
+            // cold();
             return None;
         }
 
@@ -158,7 +170,7 @@ where
         Some(unsafe { NonNull::new_unchecked(ptr) })
     }
 
-    #[inline(never)]
+    #[inline(always)]
     pub fn allocate(&self, chunk_ptr: NonNull<Self>, layout: Layout) -> Option<NonNull<u8>> {
         let (meta_layout, offset) = Layout::new::<NonNull<Self>>().extend(layout).ok()?;
         let ptr = self._allocate(meta_layout)?;
@@ -175,14 +187,14 @@ where
         Some(unsafe { NonNull::new_unchecked(ptr) })
     }
 
-    #[inline(never)]
+    #[inline(always)]
     unsafe fn _deallocate(&self, size: usize) {
         // Safety: `freed` is always less than `cursor - size`.
         // Sync with `Acquire` in `allocate`.
         self.freed().fetch_add(size, Ordering::Release);
     }
 
-    #[inline(never)]
+    #[inline(always)]
     pub unsafe fn deallocate(ptr: *mut u8, layout: Layout) {
         let (meta_layout, offset) = Layout::new::<NonNull<Self>>().extend(layout).unwrap();
 

@@ -44,22 +44,22 @@ trait ImUsize {
 }
 
 impl ImUsize for Cell<usize> {
-    #[inline(never)]
+    #[inline(always)]
     fn new(value: usize) -> Self {
         Cell::new(value)
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn load(&self, _ordering: Ordering) -> usize {
         self.get()
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn store(&self, value: usize, _ordering: Ordering) {
         self.set(value)
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn fetch_add(&self, value: usize, _ordering: Ordering) -> usize {
         let old_value = self.get();
         self.set(old_value.wrapping_add(value));
@@ -69,31 +69,35 @@ impl ImUsize for Cell<usize> {
 
 #[cfg(feature = "std")]
 impl ImUsize for core::sync::atomic::AtomicUsize {
-    #[inline(never)]
+    #[inline(always)]
     fn new(value: usize) -> Self {
         Self::new(value)
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn load(&self, ordering: Ordering) -> usize {
         self.load(ordering)
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn store(&self, value: usize, ordering: Ordering) {
         self.store(value, ordering)
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn fetch_add(&self, value: usize, ordering: Ordering) -> usize {
         self.fetch_add(value, ordering)
     }
 }
 
-#[inline(never)]
+#[inline(always)]
 fn layout_max(layout: Layout) -> usize {
     layout.align().max(layout.size())
 }
+
+#[inline(always)]
+#[cold]
+fn cold() {}
 
 #[cfg(test)]
 mod tests;

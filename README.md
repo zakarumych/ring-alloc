@@ -25,7 +25,7 @@ Failing to deallocate single block of memory will stop ring-allocator
 from reusing chunks, so be careful to not leak blocks or keep them
 alive for too long.
 
-# Usage
+## Usage
 
 This crate provides two types of ring-allocators.
 [`RingAlloc`] is a thread-local allocator that owns its rings of chunks
@@ -86,6 +86,47 @@ available on nightly compiler.
 [`RingAlloc`]: https://docs.rs/ring-alloc/0.1.0/ring_alloc/struct.RingAlloc.html
 [`OneRingAlloc`]: https://docs.rs/ring-alloc/0.1.0/ring_alloc/struct.OneRingAlloc.html
 [`allocator-api2`]: https://crates.io/crates/allocator-api2
+
+
+## Benchmarks
+
+### warm-up
+
+|                             | `Global`                | `ring_alloc::RingAlloc`           | `ring_alloc::OneRingAlloc`          | `bumpalo::Bump`                   |
+|:----------------------------|:------------------------|:----------------------------------|:------------------------------------|:--------------------------------- |
+| **`alloc 4 bytes x 65535`** | `2.73 ms` (✅ **1.00x**) | `209.67 us` (🚀 **13.02x faster**) | `306.38 us` (🚀 **8.91x faster**)    | `343.45 us` (🚀 **7.95x faster**)  |
+
+### allocation
+
+|             | `Global`                 | `ring_alloc::RingAlloc`          | `ring_alloc::OneRingAlloc`          | `bumpalo::Bump`                 |
+|:------------|:-------------------------|:---------------------------------|:------------------------------------|:------------------------------- |
+| **`alloc`** | `23.91 ns` (✅ **1.00x**) | `5.17 ns` (🚀 **4.62x faster**)   | `11.24 ns` (🚀 **2.13x faster**)     | `7.39 ns` (🚀 **3.24x faster**)  |
+
+### vec
+
+|                                | `Global`                  | `ring_alloc::RingAlloc`          | `ring_alloc::OneRingAlloc`          | `bumpalo::Bump`                   |
+|:-------------------------------|:--------------------------|:---------------------------------|:------------------------------------|:--------------------------------- |
+| **`push x 10`**                | `97.21 ns` (✅ **1.00x**)  | `32.31 ns` (🚀 **3.01x faster**)  | `41.95 ns` (🚀 **2.32x faster**)     | `33.19 ns` (🚀 **2.93x faster**)   |
+| **`reserve_exact(1) x 10`**    | `212.99 ns` (✅ **1.00x**) | `82.41 ns` (🚀 **2.58x faster**)  | `119.27 ns` (✅ **1.79x faster**)    | `73.23 ns` (🚀 **2.91x faster**)   |
+| **`push x 146`**               | `480.62 ns` (✅ **1.00x**) | `376.28 ns` (✅ **1.28x faster**) | `379.11 ns` (✅ **1.27x faster**)    | `342.50 ns` (✅ **1.40x faster**)  |
+| **`reserve_exact(1) x 146`**   | `4.02 us` (✅ **1.00x**)   | `2.01 us` (🚀 **2.00x faster**)   | `2.57 us` (✅ **1.56x faster**)      | `1.90 us` (🚀 **2.12x faster**)    |
+| **`push x 2134`**              | `5.07 us` (✅ **1.00x**)   | `5.27 us` (✅ **1.04x slower**)   | `5.35 us` (✅ **1.06x slower**)      | `5.07 us` (✅ **1.00x slower**)    |
+| **`reserve_exact(1) x 2134`**  | `49.59 us` (✅ **1.00x**)  | `207.60 us` (❌ *4.19x slower*)   | `222.35 us` (❌ *4.48x slower*)      | `212.09 us` (❌ *4.28x slower*)    |
+| **`push x 17453`**             | `39.23 us` (✅ **1.00x**)  | `41.75 us` (✅ **1.06x slower**)  | `42.01 us` (✅ **1.07x slower**)     | `41.61 us` (✅ **1.06x slower**)   |
+| **`reserve_exact(1) x 17453`** | `425.45 us` (✅ **1.00x**) | `13.41 ms` (❌ *31.51x slower*)   | `13.65 ms` (❌ *32.08x slower*)      | `21.14 ms` (❌ *49.70x slower*)    |
+
+---
+Made with [criterion-table](https://github.com/nu11ptr/criterion-table)
+
+### Conclusion
+
+`RingAlloc` is faster than `bumpalo` in most cases.
+`OneRingAlloc` is slower than `RingAlloc` and `bumpalo` in exchange for multi-threading support.
+
+`Global` allocator shows better results on `reserve_exact(1)` tests because it
+provides optimized `Allocator::grow`, not yet implemented in `RingAlloc`.
+`Global` allocator is slightly better on `push` for large vector.
+`RingAlloc` directs large allocations to underlying allocator, which is `Global` in tests.
 
 ## License
 

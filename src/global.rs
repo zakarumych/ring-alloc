@@ -85,14 +85,14 @@ impl Drop for GlobalRings {
 }
 
 impl GlobalRings {
-    #[inline(never)]
+    #[inline(always)]
     fn clean_all(&self) {
         Self::clean(&mut self.tiny_ring.lock());
         Self::clean(&mut self.small_ring.lock());
         Self::clean(&mut self.large_ring.lock());
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn clean<const N: usize>(ring: &mut GlobalRing<Chunk<N>>) {
         let mut chunk = &mut ring.head;
 
@@ -134,14 +134,14 @@ impl Drop for LocalRings {
 }
 
 impl LocalRings {
-    #[inline(never)]
+    #[inline(always)]
     fn clean_all(&self) {
         Self::clean(&self.tiny_ring);
         Self::clean(&self.small_ring);
         Self::clean(&self.large_ring);
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn clean<const N: usize>(ring: &LocalRing<Chunk<N>>) {
         let mut chunk = &ring.head;
 
@@ -165,14 +165,14 @@ impl LocalRings {
         }
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn flush_all(&mut self) {
         Self::flush(&mut self.tiny_ring, &GLOBAL_RINGS.tiny_ring);
         Self::flush(&mut self.small_ring, &GLOBAL_RINGS.small_ring);
         Self::flush(&mut self.large_ring, &GLOBAL_RINGS.large_ring);
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn flush<const N: usize>(ring: &mut LocalRing<Chunk<N>>, global: &Mutex<GlobalRing<Chunk<N>>>) {
         match (ring.head.take(), ring.tail.take()) {
             (None, None) => {}
@@ -230,7 +230,7 @@ static GLOBAL_RINGS: GlobalRings = GlobalRings {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OneRingAlloc;
 
-#[inline]
+#[inline(always)]
 fn _allocate<const N: usize>(
     ring: &LocalRing<Chunk<N>>,
     global: &Mutex<GlobalRing<Chunk<N>>>,
@@ -269,15 +269,17 @@ fn _allocate<const N: usize>(
 
                     let next = unsafe { next_ptr.as_ref() };
 
-                    if let Some(ptr) = next.allocate(next_ptr, layout) {
-                        // Safety: `ptr` is valid pointer to `Chunk` allocated by `self.allocator`.
-                        // ptr is allocated to fit `layout.size()` bytes.
-                        return Ok(unsafe {
-                            NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
-                                ptr.as_ptr(),
-                                layout.size(),
-                            ))
-                        });
+                    if next.reset() {
+                        if let Some(ptr) = next.allocate(next_ptr, layout) {
+                            // Safety: `ptr` is valid pointer to `Chunk` allocated by `self.allocator`.
+                            // ptr is allocated to fit `layout.size()` bytes.
+                            return Ok(unsafe {
+                                NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(
+                                    ptr.as_ptr(),
+                                    layout.size(),
+                                ))
+                            });
+                        }
                     }
 
                     // Not ready yet. Allocate new chunk.
@@ -291,6 +293,7 @@ fn _allocate<const N: usize>(
     // First grab chunks from global ring.
     let (g_head, g_tail) = {
         let mut global = global.lock();
+
         // Take all chunks from global ring.
         (global.head.take(), global.tail.take())
     };
@@ -359,7 +362,7 @@ fn _allocate<const N: usize>(
     })
 }
 
-#[inline(never)]
+#[inline(always)]
 unsafe fn _deallocate<const N: usize>(ptr: NonNull<u8>, layout: Layout) {
     // Safety: `ptr` is valid pointer allocated from alive `Chunk`.
     unsafe {
@@ -370,14 +373,20 @@ unsafe fn _deallocate<const N: usize>(ptr: NonNull<u8>, layout: Layout) {
 impl OneRingAlloc {
     /// Attempts to allocate a block of memory with global ring-allocator.
     /// Returns a pointer to the beginning of the block if successful.
-    #[inline(never)]
+    #[inline(always)]
     pub fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {
-            LOCAL_RINGS.with(|rings| _allocate(&rings.tiny_ring, &GLOBAL_RINGS.tiny_ring, layout))
+            LOCAL_RINGS
+                .try_with(|rings| _allocate(&rings.tiny_ring, &GLOBAL_RINGS.tiny_ring, layout))
+                .unwrap_or(Err(AllocError))
         } else if layout_max(layout) <= SMALL_ALLOCATION_MAX_SIZE {
-            LOCAL_RINGS.with(|rings| _allocate(&rings.small_ring, &GLOBAL_RINGS.small_ring, layout))
+            LOCAL_RINGS
+                .try_with(|rings| _allocate(&rings.small_ring, &GLOBAL_RINGS.small_ring, layout))
+                .unwrap_or(Err(AllocError))
         } else if layout_max(layout) <= LARGE_ALLOCATION_MAX_SIZE {
-            LOCAL_RINGS.with(|rings| _allocate(&rings.large_ring, &GLOBAL_RINGS.large_ring, layout))
+            LOCAL_RINGS
+                .try_with(|rings| _allocate(&rings.large_ring, &GLOBAL_RINGS.large_ring, layout))
+                .unwrap_or(Err(AllocError))
         } else {
             Global.allocate(layout)
         }
@@ -393,7 +402,7 @@ impl OneRingAlloc {
     ///
     /// [*currently allocated*]: https://doc.rust-lang.org/std/alloc/trait.Allocator.html#currently-allocated-memory
     /// [*fit*]: https://doc.rust-lang.org/std/alloc/trait.Allocator.html#memory-fitting
-    #[inline(never)]
+    #[inline(always)]
     pub unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         if layout_max(layout) <= TINY_ALLOCATION_MAX_SIZE {
             unsafe {
@@ -445,12 +454,12 @@ impl OneRingAlloc {
 }
 
 unsafe impl Allocator for OneRingAlloc {
-    #[inline(never)]
+    #[inline(always)]
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         self.allocate(layout)
     }
 
-    #[inline(never)]
+    #[inline(always)]
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         unsafe {
             self.deallocate(ptr, layout);
