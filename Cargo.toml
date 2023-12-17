@@ -1,6 +1,6 @@
 [package]
 name = "ring-alloc"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2018"
 authors = ["Zakarum <zaq.dev@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -13,13 +13,18 @@ keywords = ["allocator", "alloc", "concurrent", "no-std"]
 categories = ["memory-management", "no-std"]
 
 [features]
-alloc = []
-std = ["alloc", "dep:parking_lot"]
+alloc = ["allocator-api2/alloc"]
+std = ["alloc", "dep:parking_lot", "allocator-api2/std"]
 default = ["std"]
-nightly = ["allocator-api2/nightly", "allocator-api2-tests/nightly", "bumpalo/allocator_api", "blink-alloc/nightly"]
+nightly = [
+    "allocator-api2/nightly",
+    "allocator-api2-tests/nightly",
+    "bumpalo/allocator_api",
+    "blink-alloc/nightly",
+]
 
 [dependencies]
-allocator-api2 = { version = "0.2.13" }
+allocator-api2 = { default-features = false, version = "0.2.13" }
 parking_lot = { version = "0.12", optional = true }
 
 [dev-dependencies]

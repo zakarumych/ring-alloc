@@ -34,9 +34,11 @@ and uses user-provided underlying allocator to allocate chunks.
 
 ```rust
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
+
 use ring_alloc::RingAlloc;
 use allocator_api2::{boxed::Box, vec::Vec};
 
+#[cfg(feature = "alloc")]
 fn foo() -> Vec<Box<u32, RingAlloc>, RingAlloc> {
     let alloc = RingAlloc::new();
     let b = Box::new_in(42, alloc.clone());
@@ -47,8 +49,11 @@ fn foo() -> Vec<Box<u32, RingAlloc>, RingAlloc> {
 }
 
 fn main() {
-    let v = foo();
-    assert_eq!(*v[0], 42);
+    #[cfg(feature = "alloc")]
+    {
+        let v = foo();
+        assert_eq!(*v[0], 42);
+    }
 }
 ```
 
@@ -62,9 +67,12 @@ when thread exists with chunks that are still in use.
 
 ```rust
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
+
+#[cfg(feature = "std")]
 use ring_alloc::OneRingAlloc;
 use allocator_api2::{boxed::Box, vec::Vec};
 
+#[cfg(feature = "std")]
 fn foo() -> Vec<Box<u32, OneRingAlloc>, OneRingAlloc> {
     let b = Box::new_in(42, OneRingAlloc);
 
@@ -74,8 +82,11 @@ fn foo() -> Vec<Box<u32, OneRingAlloc>, OneRingAlloc> {
 }
 
 fn main() {
-    let v = std::thread::spawn(foo).join().unwrap();
-    assert_eq!(*v[0], 42);
+    #[cfg(feature = "std")]
+    {
+        let v = std::thread::spawn(foo).join().unwrap();
+        assert_eq!(*v[0], 42);
+    }
 }
 ```
 
